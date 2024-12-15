@@ -108,6 +108,7 @@ namespace SUMS
             switch (menuItems[selectedIndex])
             {
                 case "File Explorer":
+                    TestDirectoryListing();
                     OpenFileExplorer();
                     break;
                 case "Config [ DISABLED ]":
@@ -125,6 +126,31 @@ namespace SUMS
             return true; // Continue running the GUI.
         }
 
+        private static void TestDirectoryListing()
+        {
+            if (Kernel.fs == null)
+            {
+                Console.WriteLine("[ERROR] File system not initialized.");
+                return;
+            }
+
+            string testPath = @"0:\";
+
+            try
+            {
+                var entries = Kernel.fs.GetDirectoryListing(testPath);
+                foreach (var entry in entries)
+                {
+                    Console.WriteLine($"[DEBUG] Entry: {entry.mName}, Type: {entry.mEntryType}");
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[ERROR] Exception in directory listing: {ex.Message}");
+            }
+        }
+
+
         private static void OpenFileExplorer()
         {
             int selectedFileIndex = 0;
@@ -133,20 +159,20 @@ namespace SUMS
 
             if (Kernel.fs == null)
             {
-                Console.WriteLine("File system is not initialized. Ensure VFS is set up.");
+                Console.WriteLine("[ERROR] File system not initialized. Ensure VFS is set up.");
                 Console.ReadKey(true);
                 return;
             }
 
-            var currentPath = @"0:\"; // Root directory
-            var filesAndFolders = GetDirectoryListing(currentPath);
+            string currentPath = @"0:\"; // Root directory
+            List<string> filesAndFolders = GetDirectoryListing(currentPath);
 
             while (explorerRunning)
             {
                 Console.Clear();
                 DrawHeader($"File Explorer - {currentPath}");
 
-                // Calculate visible range for scrolling
+                // Handle scrolling display logic
                 int startIndex = Math.Max(0, selectedFileIndex - maxVisibleItems / 2);
                 int endIndex = Math.Min(filesAndFolders.Count, startIndex + maxVisibleItems);
 
@@ -165,97 +191,119 @@ namespace SUMS
                     }
                 }
 
-                DrawFooter("Arrows to navigate, Enter to open, Backspace to go back, [TAB] New Dir, [C] New File, [E] Edit File");
+                DrawFooter("Arrows to navigate, Enter to open, Backspace to go back");
 
                 var key = Console.ReadKey(true).Key;
 
-                switch (key)
+                try
                 {
-                    case ConsoleKey.UpArrow:
-                        selectedFileIndex = (selectedFileIndex - 1 + filesAndFolders.Count) % filesAndFolders.Count;
-                        break;
+                    switch (key)
+                    {
+                        case ConsoleKey.UpArrow:
+                            selectedFileIndex = (selectedFileIndex - 1 + filesAndFolders.Count) % filesAndFolders.Count;
+                            break;
 
-                    case ConsoleKey.DownArrow:
-                        selectedFileIndex = (selectedFileIndex + 1) % filesAndFolders.Count;
-                        break;
+                        case ConsoleKey.DownArrow:
+                            selectedFileIndex = (selectedFileIndex + 1) % filesAndFolders.Count;
+                            break;
 
-                    case ConsoleKey.Enter:
-                        var selectedPath = currentPath + filesAndFolders[selectedFileIndex];
-                        var file = Kernel.fs.GetFile(selectedPath);
-                        var directory = Kernel.fs.GetDirectory(selectedPath);
+                        case ConsoleKey.Enter:
+                            HandleFileOrDirectory(currentPath, filesAndFolders[selectedFileIndex], ref currentPath, ref filesAndFolders, ref selectedFileIndex);
+                            break;
 
-                        if (file != null)
-                        {
-                            ViewFileContent(selectedPath);
-                        }
-                        else if (directory != null)
-                        {
-                            currentPath = selectedPath + @"\"; // Navigate into the directory
-                            filesAndFolders = GetDirectoryListing(currentPath);
-                            selectedFileIndex = 0;
-                        }
-                        break;
+                        case ConsoleKey.Backspace:
+                            if (currentPath != @"0:\") // Can't go back from root
+                            {
+                                currentPath = GoToParentDirectory(currentPath);
+                                filesAndFolders = GetDirectoryListing(currentPath);
+                                selectedFileIndex = 0; // Reset selection
+                            }
+                            else
+                            {
+                                explorerRunning = false; // Exit explorer
+                            }
+                            break;
 
-                    case ConsoleKey.Backspace:
-                        if (currentPath != @"0:\")
-                        {
-                            currentPath = currentPath.Substring(0, currentPath.LastIndexOf('\\'));
-                            if (!currentPath.EndsWith(@"\")) currentPath += @"\"; // Ensure trailing backslash
-                            filesAndFolders = GetDirectoryListing(currentPath);
-                            selectedFileIndex = 0;
-                        }
-                        else
-                        {
-                            explorerRunning = false; // Exit the explorer
-                        }
-                        break;
-
-                    case ConsoleKey.Tab:
-                        CreateNewDirectory(currentPath);
-                        filesAndFolders = GetDirectoryListing(currentPath); // Refresh
-                        break;
-
-                    case ConsoleKey.C:
-                        CreateNewFile(currentPath);
-                        filesAndFolders = GetDirectoryListing(currentPath); // Refresh
-                        break;
-
-                    case ConsoleKey.E:
-                        var editPath = currentPath + filesAndFolders[selectedFileIndex];
-                        var editFile = Kernel.fs.GetFile(editPath);
-
-                        if (editFile != null)
-                        {
-                            EditFileContent(editPath);
-                        }
-                        break;
+                        default:
+                            Console.WriteLine($"[DEBUG] Unhandled key: {key}");
+                            break;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"[ERROR] Exception in File Explorer: {ex.Message}");
+                    Console.ReadKey(true);
                 }
             }
         }
 
+        private static void HandleFileOrDirectory(string currentPath, string selectedItem, ref string currentPathRef, ref List<string> filesAndFolders, ref int selectedFileIndex)
+        {
+            string selectedPath = currentPath + selectedItem;
+            var file = Kernel.fs.GetFile(selectedPath);
+            var directory = Kernel.fs.GetDirectory(selectedPath);
+
+            if (file != null) // Handle file
+            {
+                ViewFileContent(selectedPath);
+            }
+            else if (directory != null) // Handle directory
+            {
+                currentPathRef = selectedPath + @"\"; // Navigate into the directory
+                filesAndFolders = GetDirectoryListing(currentPathRef);
+                selectedFileIndex = 0; // Reset selection
+            }
+            else
+            {
+                Console.WriteLine("[ERROR] Invalid selection.");
+                Console.ReadKey(true);
+            }
+        }
+
+        private static string GoToParentDirectory(string currentPath)
+        {
+            int lastBackslash = currentPath.LastIndexOf('\\', currentPath.Length - 2); // Ignore trailing backslash
+            if (lastBackslash >= 0)
+            {
+                return currentPath.Substring(0, lastBackslash + 1); // Include the backslash
+            }
+
+            return @"0:\"; // Default to root if something goes wrong
+        }
+
+
         private static void ViewFileContent(string filePath)
         {
-            var file = Kernel.fs.GetFile(filePath);
-            if (file == null)
+            if (Kernel.fs == null)
             {
-                Console.WriteLine("File does not exist.");
-                Console.ReadKey(true);
+                Console.WriteLine("[ERROR] File system not initialized.");
                 return;
             }
 
-            Console.Clear();
-            DrawHeader($"Viewing File - {filePath}");
-            using (var stream = file.GetFileStream())
+            Console.WriteLine($"[DEBUG] Attempting to view file: {filePath}");
+
+            try
             {
-                var buffer = new byte[stream.Length];
-                stream.Read(buffer, 0, buffer.Length);
-                var content = Encoding.ASCII.GetString(buffer);
+                var file = Kernel.fs.GetFile(filePath);
+                if (file == null)
+                {
+                    Console.WriteLine("[ERROR] File not found.");
+                    return;
+                }
 
-                Console.WriteLine(content);
+                using (var stream = file.GetFileStream())
+                {
+                    Console.WriteLine($"[DEBUG] File stream length: {stream.Length}");
+                    var buffer = new byte[stream.Length];
+                    stream.Read(buffer, 0, buffer.Length);
+                    var content = Encoding.ASCII.GetString(buffer);
+                    Console.WriteLine($"[DEBUG] File content: {content}");
+                }
             }
-
-            Console.WriteLine("\nPress any key to return...");
-            Console.ReadKey(true);
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[ERROR] Exception while reading file: {ex.Message}");
+            }
         }
 
         private static void EditFileContent(string filePath)
@@ -289,11 +337,19 @@ namespace SUMS
                 var key = Console.ReadKey(true);
                 if (key.Key == ConsoleKey.Escape)
                 {
-                    using (var stream = file.GetFileStream())
+                    try
                     {
-                        stream.SetLength(0); // Clear existing content
-                        var buffer = Encoding.ASCII.GetBytes(editedContent.ToString());
-                        stream.Write(buffer, 0, buffer.Length);
+                        Kernel.fs.DeleteFile(file);
+                        var newFile = Kernel.fs.CreateFile(filePath);
+                        using (var stream = newFile.GetFileStream())
+                        {
+                            var buffer = Encoding.ASCII.GetBytes(editedContent.ToString());
+                            stream.Write(buffer, 0, buffer.Length);
+                        }
+                    }
+                    catch (NotImplementedException)
+                    {
+                        Console.WriteLine("File editing not supported in this Cosmos build.");
                     }
                     Console.WriteLine("\nFile saved.");
                     break;
@@ -321,10 +377,21 @@ namespace SUMS
         private static List<string> GetDirectoryListing(string path)
         {
             if (Kernel.fs == null)
+            {
+                Console.WriteLine("[ERROR] File system is not initialized.");
                 return new List<string>();
+            }
 
-            var entries = Kernel.fs.GetDirectoryListing(path);
-            return entries.Select(entry => entry.mName).ToList();
+            try
+            {
+                var entries = Kernel.fs.GetDirectoryListing(path);
+                return entries.Select(entry => entry.mName).ToList();
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[ERROR] Exception while listing directory: {ex.Message}");
+                return new List<string>();
+            }
         }
 
         private static void CreateNewDirectory(string currentPath)
