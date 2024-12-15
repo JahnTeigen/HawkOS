@@ -21,6 +21,8 @@ For å bygge og kjøre HawkOS, må du ha følgende installert:
 - [Visual Studio](https://visualstudio.microsoft.com/) med `.NET Desktop Development`-workload.
 - Cosmos-kjernen. Følg [Cosmos Wiki](https://github.com/CosmosOS/Cosmos/wiki) for å installere riktig versjon.
 
+(OBS: Er per nå ikke stabil på fysiske maskiner. Brukes med en VM)
+
 ### **Bygg prosjektet**
 1. Klon dette repositoriet:
    ```bash
